@@ -120,77 +120,12 @@ jobs:
             check_config "CONFIG_PACKAGE_${pkg}=y" "package ${pkg}"
           done
           # OpenWrt Kconfig may omit disabled options or render '# ... is not set'.
-          if grep -Eq '^CONFIG_CLEAN_IPKG=y$|^CONFIG_USE_APK=y
-          cp .config ../effective.config
-          cp ../selected-packages.txt ../requested-packages.txt
-
-      - name: Download source archives
-        working-directory: openwrt
-        run: make download -j4
-
-      - name: Compile firmware
-        working-directory: openwrt
-        shell: bash
-        run: |
-          set -o pipefail
-          if ! make -j2 2>&1 | tee ../build.log; then
-            echo "Parallel build failed; retrying verbose single-thread build"
-            make -j1 V=s 2>&1 | tee -a ../build.log
+          if grep -Eq '^CONFIG_CLEAN_IPKG=y$|^CONFIG_USE_APK=y$' .config; then
+            echo "::error::OpenWrt opkg feed mode unexpectedly disabled"
+            exit 1
           fi
-
-      - name: Check official runtime opkg feeds
-        working-directory: openwrt
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          candidates=(build_dir/target-*/root-*/etc/opkg/distfeeds.conf)
-          (( ${#candidates[@]} > 0 )) || { echo "No generated opkg distfeeds.conf found"; exit 1; }
-          conf="${candidates[0]}"
-          grep -Eq '^src/gz[[:space:]]' "$conf" || { echo "Empty opkg feeds"; exit 1; }
-          if grep -E '^src/gz[[:space:]]' "$conf" | grep -Ev '^src/gz[[:space:]]+[^[:space:]]+[[:space:]]+https://downloads\.openwrt\.org/' ; then
-            echo "Non-official or non-HTTPS runtime feed found"; exit 1
-          fi
-          grep -q '/releases/24.10.6/' "$conf" || { echo "Runtime feeds version mismatch"; exit 1; }
-          cp "$conf" ../distfeeds.conf.verified
-          echo "Runtime opkg feeds point exclusively to official OpenWrt HTTPS release repositories"
-
-      - name: Collect and verify output
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p output
-          shopt -s nullglob
-          images=(openwrt/bin/targets/mediatek/filogic/*cudy_tr3000-v1-ubootmod*sysupgrade.itb)
-          (( ${#images[@]} > 0 )) || { echo "Missing expected U-Boot Mod sysupgrade.itb"; exit 1; }
-          cp "${images[@]}" output/
-          cp effective.config output/
-          cp requested-packages.txt output/
-          cp distfeeds.conf.verified output/
-          printf 'OpenWrt tag: %s\nDevice: %s\nSource commit: %s\n' "$OPENWRT_REF" "$DEVICE" "$(git -C openwrt rev-parse HEAD)" > output/BUILDINFO.txt
-          (cd output && sha256sum *sysupgrade.itb > SHA256SUMS)
-
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tr3000-ubootmod-${{ github.run_number }}
-          path: output/
-          retention-days: 30
-
-      - name: Publish Release
-        if: ${{ inputs.publish_release }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="tr3000-ubootmod-${GITHUB_RUN_NUMBER}"
-          gh release create "$tag" output/* --title "TR3000 U-Boot Mod build #${GITHUB_RUN_NUMBER}" --notes "For TR3000 V1 128MB with OpenWrt U-Boot layout ONLY. Not for stock layout."
- .config; then
-            echo "::error::OpenWrt opkg feed mode unexpectedly disabled"; exit 1
-          fi
-          check_config 'CONFIG_SIGNATURE_CHECK=y' "opkg signature verification"
-          check_config 'CONFIG_DOWNLOAD_CHECK_CERTIFICATE=y' "TLS download certificate checks"
+          check_config "CONFIG_SIGNATURE_CHECK=y" "opkg signature verification"
+          check_config "CONFIG_DOWNLOAD_CHECK_CERTIFICATE=y" "TLS download certificate checks"
           cp .config ../effective.config
           cp ../selected-packages.txt ../requested-packages.txt
 
