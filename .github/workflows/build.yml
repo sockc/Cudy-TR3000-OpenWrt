@@ -3,6 +3,21 @@ name: Build TR3000 U-Boot Mod
 on:
   workflow_dispatch:
     inputs:
+      with_luci:
+        description: "Include LuCI web admin (HTTPS)"
+        type: boolean
+        required: true
+        default: true
+      with_smartdns:
+        description: "Include SmartDNS and LuCI SmartDNS app"
+        type: boolean
+        required: true
+        default: true
+      with_tailscale:
+        description: "Include Tailscale"
+        type: boolean
+        required: true
+        default: true
       publish_release:
         description: Publish firmware in Releases
         type: boolean
@@ -23,6 +38,9 @@ jobs:
     env:
       DEVICE: cudy_tr3000-v1-ubootmod
       OPENWRT_REF: v24.10.6
+      WITH_LUCI: ${{ inputs.with_luci }}
+      WITH_SMARTDNS: ${{ inputs.with_smartdns }}
+      WITH_TAILSCALE: ${{ inputs.with_tailscale }}
     steps:
       - name: Checkout configuration
         uses: actions/checkout@v4
@@ -58,6 +76,23 @@ jobs:
           CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEVICE}=y
           CFG
           packages=()
+          # Read common packages and selected optional groups from one list.
+          selected_file="$(mktemp)"
+          cat ../packages.txt > "$selected_file"
+          if [[ "$WITH_LUCI" == "true" ]]; then
+            printf '%s\\n' luci luci-ssl luci-app-firewall >> "$selected_file"
+          fi
+          if [[ "$WITH_SMARTDNS" == "true" ]]; then
+            printf '%s\\n' smartdns luci-app-smartdns >> "$selected_file"
+          fi
+          if [[ "$WITH_TAILSCALE" == "true" ]]; then
+            printf '%s\\n' tailscale >> "$selected_file"
+          fi
+          # SmartDNS LuCI management needs LuCI, even when the LuCI checkbox is off.
+          if [[ "$WITH_SMARTDNS" == "true" && "$WITH_LUCI" != "true" ]]; then
+            echo "SmartDNS includes its LuCI application; enabling LuCI dependency automatically."
+          fi
+          sort -u "$selected_file" > ../selected-packages.txt
           while IFS= read -r pkg || [[ -n "$pkg" ]]; do
             pkg="${pkg%%#*}"
             pkg="${pkg//[[:space:]]/}"
@@ -65,13 +100,14 @@ jobs:
             [[ "$pkg" =~ ^[a-zA-Z0-9_.+-]+$ ]] || { echo "Invalid package name: $pkg"; exit 1; }
             packages+=("$pkg")
             echo "CONFIG_PACKAGE_${pkg}=y" >> .config
-          done < ../packages.txt
+          done < ../selected-packages.txt
           make defconfig
           grep -Fqx "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEVICE}=y" .config
           for pkg in "${packages[@]}"; do
             grep -Fqx "CONFIG_PACKAGE_${pkg}=y" .config || { echo "Missing package: $pkg"; exit 1; }
           done
           cp .config ../effective.config
+          cp ../selected-packages.txt ../requested-packages.txt
 
       - name: Download source archives
         working-directory: openwrt
@@ -97,6 +133,7 @@ jobs:
           (( ${#images[@]} > 0 )) || { echo "Missing expected U-Boot Mod sysupgrade.itb"; exit 1; }
           cp "${images[@]}" output/
           cp effective.config output/
+          cp requested-packages.txt output/
           printf 'OpenWrt tag: %s\nDevice: %s\nSource commit: %s\n' "$OPENWRT_REF" "$DEVICE" "$(git -C openwrt rev-parse HEAD)" > output/BUILDINFO.txt
           (cd output && sha256sum *sysupgrade.itb > SHA256SUMS)
 
