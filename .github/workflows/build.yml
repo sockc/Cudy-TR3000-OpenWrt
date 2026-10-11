@@ -78,7 +78,7 @@ jobs:
           CONFIG_SIGNATURE_CHECK=y
           CONFIG_DOWNLOAD_CHECK_CERTIFICATE=y
           CONFIG_TARGET_mediatek_filogic=y
-          CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEVICE}=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_${DEVICE}=y
           CFG
           packages=()
           # Read common packages and selected optional groups from one list.
@@ -115,7 +115,7 @@ jobs:
               exit 1
             fi
           }
-          check_config "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEVICE}=y" "TR3000 U-Boot Mod profile"
+          check_config "CONFIG_TARGET_mediatek_filogic_DEVICE_${DEVICE}=y" "TR3000 U-Boot Mod profile"
           for pkg in "${packages[@]}"; do
             check_config "CONFIG_PACKAGE_${pkg}=y" "package ${pkg}"
           done
