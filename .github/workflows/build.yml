@@ -80,13 +80,13 @@ jobs:
           selected_file="$(mktemp)"
           cat ../packages.txt > "$selected_file"
           if [[ "$WITH_LUCI" == "true" ]]; then
-            printf '%s\\n' luci luci-ssl luci-app-firewall >> "$selected_file"
+            printf '%s\n' luci luci-ssl luci-app-firewall >> "$selected_file"
           fi
           if [[ "$WITH_SMARTDNS" == "true" ]]; then
-            printf '%s\\n' smartdns luci-app-smartdns >> "$selected_file"
+            printf '%s\n' smartdns luci-app-smartdns >> "$selected_file"
           fi
           if [[ "$WITH_TAILSCALE" == "true" ]]; then
-            printf '%s\\n' tailscale >> "$selected_file"
+            printf '%s\n' tailscale >> "$selected_file"
           fi
           # SmartDNS LuCI management needs LuCI, even when the LuCI checkbox is off.
           if [[ "$WITH_SMARTDNS" == "true" && "$WITH_LUCI" != "true" ]]; then
