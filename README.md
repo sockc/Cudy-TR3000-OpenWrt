@@ -11,9 +11,11 @@ GitHub Actions custom firmware for **Cudy TR3000 V1 128MB NAND with OpenWrt U-Bo
 
 1. Go to **Actions → Build TR3000 U-Boot Mod → Run workflow**.
 2. Tick **LuCI Web admin (HTTPS)**, **SmartDNS + LuCI app**, and/or **Tailscale**. All three default to enabled.
-3. Optionally turn off **Publish firmware in Releases**.
-4. Run workflow. Download the artifact; if publishing is enabled, download from **Releases**.
-5. Compare image checksum with `SHA256SUMS` before flashing.
+3. Optionally enter **custom_packages** as official package names separated by spaces or commas (up to 40), e.g. `luci-app-upnp luci-app-ddns`. Missing or invalid packages cause an explicit build failure.
+4. Optional LuCI builds include `luci-i18n-base-zh-cn` and configure Chinese as the default language on first boot. SmartDNS builds include its Chinese language pack.
+5. Optionally turn off **Publish firmware in Releases**.
+6. Run workflow. Download the artifact; if publishing is enabled, download from **Releases**.
+7. Compare image checksum with `SHA256SUMS` before flashing.
 
 ### Option mapping (official OpenWrt 24.10 feeds)
 
@@ -24,6 +26,8 @@ GitHub Actions custom firmware for **Cudy TR3000 V1 128MB NAND with OpenWrt U-Bo
 | Tailscale | `tailscale` |
 
 SmartDNS LuCI app pulls LuCI dependencies even when the separate LuCI option is disabled. Installing Tailscale does **not** automatically log in to a tailnet: complete setup after installation. SmartDNS also requires post-install DNS configuration; no DNS takeover is hardcoded.
+
+GitHub Actions caches the OpenWrt source archive download directory (`openwrt/dl`) to reduce repeat downloads; full compilation is still required. Releases include `IMAGE-SIZE.txt`, `requested-packages.txt`, `effective.config`, `build-feeds.conf`, `distfeeds.conf.verified`, and `BUILDINFO.txt`. The 64 MiB image warning is advisory, not a guarantee about the device's available firmware partition.
 
 The common tools in `packages.txt` are included in every build. The workflow generates `requested-packages.txt` and `effective.config`, and fails if requested packages cannot be selected. A failed compilation does not publish a release.
 
@@ -54,4 +58,4 @@ cat /proc/mtd
 
 Back up your config before upgrading. Only use the `sysupgrade.itb` for compatible OpenWrt U-Boot Mod sysupgrade. Bootloader artifacts are not regular firmware upgrades.
 
-GitHub Actions build has not yet been run/validated.
+Earlier firmware builds were reported successful. These new features require a fresh GitHub Actions build to validate; runtime `opkg update` and package installation must be tested on the device. The workflow checks official feed URLs and signed-package configuration, but cannot prove runtime index signature compatibility or Internet connectivity from a build runner.
