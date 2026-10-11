@@ -72,6 +72,11 @@ jobs:
           grep -Fqx "TARGET_DEVICES += ${DEVICE}" target/linux/mediatek/image/filogic.mk
           cat > .config <<CFG
           CONFIG_TARGET_mediatek=y
+          CONFIG_CLEAN_IPKG=n
+          CONFIG_USE_APK=n
+          CONFIG_SIGNED_PACKAGES=y
+          CONFIG_SIGNATURE_CHECK=y
+          CONFIG_DOWNLOAD_CHECK_CERTIFICATE=y
           CONFIG_TARGET_mediatek_filogic=y
           CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEVICE}=y
           CFG
@@ -106,6 +111,11 @@ jobs:
           for pkg in "${packages[@]}"; do
             grep -Fqx "CONFIG_PACKAGE_${pkg}=y" .config || { echo "Missing package: $pkg"; exit 1; }
           done
+          # Retain the upstream opkg feed generation and package verification options.
+          grep -Fqx '# CONFIG_CLEAN_IPKG is not set' .config
+          grep -Fqx '# CONFIG_USE_APK is not set' .config
+          grep -Fqx 'CONFIG_SIGNATURE_CHECK=y' .config
+          grep -Fqx 'CONFIG_DOWNLOAD_CHECK_CERTIFICATE=y' .config
           cp .config ../effective.config
           cp ../selected-packages.txt ../requested-packages.txt
 
@@ -123,6 +133,23 @@ jobs:
             make -j1 V=s 2>&1 | tee -a ../build.log
           fi
 
+      - name: Check official runtime opkg feeds
+        working-directory: openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          candidates=(build_dir/target-*/root-*/etc/opkg/distfeeds.conf)
+          (( ${#candidates[@]} > 0 )) || { echo "No generated opkg distfeeds.conf found"; exit 1; }
+          conf="${candidates[0]}"
+          grep -Eq '^src/gz[[:space:]]' "$conf" || { echo "Empty opkg feeds"; exit 1; }
+          if grep -E '^src/gz[[:space:]]' "$conf" | grep -Ev '^src/gz[[:space:]]+[^[:space:]]+[[:space:]]+https://downloads\.openwrt\.org/' ; then
+            echo "Non-official or non-HTTPS runtime feed found"; exit 1
+          fi
+          grep -q '/releases/24.10.6/' "$conf" || { echo "Runtime feeds version mismatch"; exit 1; }
+          cp "$conf" ../distfeeds.conf.verified
+          echo "Runtime opkg feeds point exclusively to official OpenWrt HTTPS release repositories"
+
       - name: Collect and verify output
         shell: bash
         run: |
@@ -134,6 +161,7 @@ jobs:
           cp "${images[@]}" output/
           cp effective.config output/
           cp requested-packages.txt output/
+          cp distfeeds.conf.verified output/
           printf 'OpenWrt tag: %s\nDevice: %s\nSource commit: %s\n' "$OPENWRT_REF" "$DEVICE" "$(git -C openwrt rev-parse HEAD)" > output/BUILDINFO.txt
           (cd output && sha256sum *sysupgrade.itb > SHA256SUMS)
 
