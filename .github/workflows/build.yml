@@ -101,7 +101,7 @@ jobs:
             [[ "$pkg" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$ ]] || {
               echo "::error::Invalid package name: $pkg"; exit 1;
             }
-            printf '%s\\n' "$pkg" >> "$selected_file"
+            printf '%s\n' "$pkg" >> "$selected_file"
           done
           if [[ "$WITH_LUCI" == "true" ]]; then
             printf '%s\n' luci luci-ssl luci-app-firewall luci-i18n-base-zh-cn >> "$selected_file"
@@ -212,7 +212,7 @@ jobs:
           cp distfeeds.conf.verified output/
           cp openwrt/feeds.conf.default output/build-feeds.conf
           img_size=$(stat -c%s "${images[0]}")
-          printf 'Firmware bytes: %s\\nFirmware MiB: %s\\n' "$img_size" "$(awk -v b="$img_size" 'BEGIN {printf "%.2f", b/1048576}')" > output/IMAGE-SIZE.txt
+          printf 'Firmware bytes: %s\nFirmware MiB: %s\n' "$img_size" "$(awk -v b="$img_size" 'BEGIN {printf "%.2f", b/1048576}')" > output/IMAGE-SIZE.txt
           if (( img_size > 64 * 1024 * 1024 )); then
             echo "::warning::Image exceeds 64 MiB; inspect partition capacity before flashing"
           fi
