@@ -1,0 +1,118 @@
+name: Build TR3000 U-Boot Mod
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish firmware in Releases
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tr3000-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      DEVICE: cudy_tr3000-v1-ubootmod
+      OPENWRT_REF: v24.10.6
+    steps:
+      - name: Checkout configuration
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /opt/hostedtoolcache/CodeQL || true
+          df -h .
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3 python3-setuptools python3-pyelftools rsync swig unzip zlib1g-dev file wget curl subversion time zip xz-utils libelf-dev libzstd-dev
+
+      - name: Clone pinned OpenWrt source
+        run: git clone --depth 1 --branch "$OPENWRT_REF" https://github.com/openwrt/openwrt.git openwrt
+
+      - name: Install feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure target and packages
+        working-directory: openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fqx "TARGET_DEVICES += ${DEVICE}" target/linux/mediatek/image/filogic.mk
+          cat > .config <<CFG
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEVICE}=y
+          CFG
+          packages=()
+          while IFS= read -r pkg || [[ -n "$pkg" ]]; do
+            pkg="${pkg%%#*}"
+            pkg="${pkg//[[:space:]]/}"
+            [[ -z "$pkg" ]] && continue
+            [[ "$pkg" =~ ^[a-zA-Z0-9_.+-]+$ ]] || { echo "Invalid package name: $pkg"; exit 1; }
+            packages+=("$pkg")
+            echo "CONFIG_PACKAGE_${pkg}=y" >> .config
+          done < ../packages.txt
+          make defconfig
+          grep -Fqx "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEVICE}=y" .config
+          for pkg in "${packages[@]}"; do
+            grep -Fqx "CONFIG_PACKAGE_${pkg}=y" .config || { echo "Missing package: $pkg"; exit 1; }
+          done
+          cp .config ../effective.config
+
+      - name: Download source archives
+        working-directory: openwrt
+        run: make download -j4
+
+      - name: Compile firmware
+        working-directory: openwrt
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! make -j2 2>&1 | tee ../build.log; then
+            echo "Parallel build failed; retrying verbose single-thread build"
+            make -j1 V=s 2>&1 | tee -a ../build.log
+          fi
+
+      - name: Collect and verify output
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          shopt -s nullglob
+          images=(openwrt/bin/targets/mediatek/filogic/*cudy_tr3000-v1-ubootmod*sysupgrade.itb)
+          (( ${#images[@]} > 0 )) || { echo "Missing expected U-Boot Mod sysupgrade.itb"; exit 1; }
+          cp "${images[@]}" output/
+          cp effective.config output/
+          printf 'OpenWrt tag: %s\nDevice: %s\nSource commit: %s\n' "$OPENWRT_REF" "$DEVICE" "$(git -C openwrt rev-parse HEAD)" > output/BUILDINFO.txt
+          (cd output && sha256sum *sysupgrade.itb > SHA256SUMS)
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tr3000-ubootmod-${{ github.run_number }}
+          path: output/
+          retention-days: 30
+
+      - name: Publish Release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="tr3000-ubootmod-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" output/* --title "TR3000 U-Boot Mod build #${GITHUB_RUN_NUMBER}" --notes "For TR3000 V1 128MB with OpenWrt U-Boot layout ONLY. Not for stock layout."
