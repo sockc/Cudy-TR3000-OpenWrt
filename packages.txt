@@ -1,0 +1,9 @@
+# OpenWrt official-feed packages only.
+# One package per line. Do not add third-party apps without compatible feeds.
+luci
+luci-ssl
+luci-app-firewall
+nano
+htop
+curl
+tcpdump
