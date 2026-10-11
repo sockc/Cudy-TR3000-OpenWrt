@@ -18,6 +18,11 @@ on:
         type: boolean
         required: true
         default: true
+      custom_packages:
+        description: "Extra official package names (space or comma separated)"
+        type: string
+        required: false
+        default: ""
       publish_release:
         description: Publish firmware in Releases
         type: boolean
@@ -41,6 +46,7 @@ jobs:
       WITH_LUCI: ${{ inputs.with_luci }}
       WITH_SMARTDNS: ${{ inputs.with_smartdns }}
       WITH_TAILSCALE: ${{ inputs.with_tailscale }}
+      CUSTOM_PACKAGES: ${{ inputs.custom_packages }}
     steps:
       - name: Checkout configuration
         uses: actions/checkout@v4
@@ -84,11 +90,24 @@ jobs:
           # Read common packages and selected optional groups from one list.
           selected_file="$(mktemp)"
           cat ../packages.txt > "$selected_file"
+          # Additional packages are only allowed from the already-installed official feeds.
+          # Never evaluate the user input as a command or configuration directive.
+          custom_normalized="${CUSTOM_PACKAGES//,/ }"
+          read -r -a extras <<< "$custom_normalized" || true
+          if (( ${#extras[@]} > 40 )); then
+            echo "::error::Maximum 40 extra packages"; exit 1
+          fi
+          for pkg in "${extras[@]}"; do
+            [[ "$pkg" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$ ]] || {
+              echo "::error::Invalid package name: $pkg"; exit 1;
+            }
+            printf '%s\\n' "$pkg" >> "$selected_file"
+          done
           if [[ "$WITH_LUCI" == "true" ]]; then
-            printf '%s\n' luci luci-ssl luci-app-firewall >> "$selected_file"
+            printf '%s\n' luci luci-ssl luci-app-firewall luci-i18n-base-zh-cn >> "$selected_file"
           fi
           if [[ "$WITH_SMARTDNS" == "true" ]]; then
-            printf '%s\n' smartdns luci-app-smartdns >> "$selected_file"
+            printf '%s\n' smartdns luci-app-smartdns luci-i18n-smartdns-zh-cn >> "$selected_file"
           fi
           if [[ "$WITH_TAILSCALE" == "true" ]]; then
             printf '%s\n' tailscale >> "$selected_file"
@@ -128,6 +147,25 @@ jobs:
           check_config "CONFIG_DOWNLOAD_CHECK_CERTIFICATE=y" "TLS download certificate checks"
           cp .config ../effective.config
           cp ../selected-packages.txt ../requested-packages.txt
+          if [[ "$WITH_LUCI" == "true" ]]; then
+            # LuCI i18n is installed above; configure Chinese as the default UI language.
+            mkdir -p files/etc/uci-defaults
+            cat > files/etc/uci-defaults/99-luci-zh-cn <<'SCRIPT'
+          #!/bin/sh
+          uci -q set luci.main.lang='zh_cn'
+          uci -q commit luci
+          exit 0
+          SCRIPT
+            chmod 755 files/etc/uci-defaults/99-luci-zh-cn
+          fi
+
+      - name: Cache source archives
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: openwrt-dl-24.10.6-${{ hashFiles('packages.txt') }}
+          restore-keys: |
+            openwrt-dl-24.10.6-
 
       - name: Download source archives
         working-directory: openwrt
@@ -172,6 +210,12 @@ jobs:
           cp effective.config output/
           cp requested-packages.txt output/
           cp distfeeds.conf.verified output/
+          cp openwrt/feeds.conf.default output/build-feeds.conf
+          img_size=$(stat -c%s "${images[0]}")
+          printf 'Firmware bytes: %s\\nFirmware MiB: %s\\n' "$img_size" "$(awk -v b="$img_size" 'BEGIN {printf "%.2f", b/1048576}')" > output/IMAGE-SIZE.txt
+          if (( img_size > 64 * 1024 * 1024 )); then
+            echo "::warning::Image exceeds 64 MiB; inspect partition capacity before flashing"
+          fi
           printf 'OpenWrt tag: %s\nDevice: %s\nSource commit: %s\n' "$OPENWRT_REF" "$DEVICE" "$(git -C openwrt rev-parse HEAD)" > output/BUILDINFO.txt
           (cd output && sha256sum *sysupgrade.itb > SHA256SUMS)
 
