@@ -1,34 +1,43 @@
 # Cudy TR3000 V1 (128MB) — OpenWrt U-Boot Mod
 
-GitHub Actions firmware builds **only** for Cudy TR3000 V1, 128MB NAND, **OpenWrt U-Boot layout**.
+GitHub Actions custom firmware for **Cudy TR3000 V1 128MB NAND with OpenWrt U-Boot layout only**.
 
-- Target / subtarget: `mediatek/filogic`
-- Device profile: `cudy_tr3000-v1-ubootmod`
-- Pinned source tag: `v24.10.6`
-- Expected sysupgrade image: `*cudy_tr3000-v1-ubootmod-squashfs-sysupgrade.itb`
+- Target: `mediatek/filogic`
+- Device: `cudy_tr3000-v1-ubootmod` (fixed; not user-selectable)
+- OpenWrt source: `v24.10.6` (pinned)
+- Upgrade image: `*cudy_tr3000-v1-ubootmod*squashfs-sysupgrade.itb`
 
-## Build
+## Build with selected software
 
-1. Open **Actions → Build TR3000 U-Boot Mod → Run workflow**.
-2. By default the workflow uploads an artifact and creates a GitHub Release.
-3. Download the `sysupgrade.itb` and check its SHA256 against `SHA256SUMS`.
-4. Inspect `effective.config` and `BUILDINFO.txt` in the release.
+1. Go to **Actions → Build TR3000 U-Boot Mod → Run workflow**.
+2. Tick **LuCI Web admin (HTTPS)**, **SmartDNS + LuCI app**, and/or **Tailscale**. All three default to enabled.
+3. Optionally turn off **Publish firmware in Releases**.
+4. Run workflow. Download the artifact; if publishing is enabled, download from **Releases**.
+5. Compare image checksum with `SHA256SUMS` before flashing.
 
-## Packages
+### Option mapping (official OpenWrt 24.10 feeds)
 
-Edit `packages.txt`, one official feed package per line. Build fails if a requested package is unavailable.
-Third-party applications require separately maintained feeds and testing; they are not bundled by default.
+| Checkbox | Packages |
+| --- | --- |
+| LuCI | `luci`, `luci-ssl`, `luci-app-firewall` |
+| SmartDNS | `smartdns`, `luci-app-smartdns` |
+| Tailscale | `tailscale` |
 
-## Flashing warning
+SmartDNS LuCI app pulls LuCI dependencies even when the separate LuCI option is disabled. Installing Tailscale does **not** automatically log in to a tailnet: complete setup after installation. SmartDNS also requires post-install DNS configuration; no DNS takeover is hardcoded.
 
-**Do not flash to stock Cudy layout, the 256MB variant, or an unverified device.**
-This only builds a sysupgrade image and does not convert bootloaders or partition layouts.
-Before upgrading, back up your configuration and verify:
+The common tools in `packages.txt` are included in every build. The workflow generates `requested-packages.txt` and `effective.config`, and fails if requested packages cannot be selected. A failed compilation does not publish a release.
+
+Official branches are used for feeds via the pinned OpenWrt source's default feeds configuration. No third-party feeds are required for these three options.
+
+## Safety
+
+**Never flash this image onto stock partition layout, TR3000 256MB, or other router models.** Verify installed firmware and flash layout:
+
 ```sh
 ubus call system board
 cat /proc/mtd
 ```
-Use compatible TR3000 OpenWrt U-Boot layout and follow device-specific instructions.
-Never flash `preloader.bin` or `bl31-uboot.fip` through the normal sysupgrade interface.
 
-Build validation on GitHub Actions is pending.
+Back up your config before upgrading. Only use the `sysupgrade.itb` for compatible OpenWrt U-Boot Mod sysupgrade. Bootloader artifacts are not regular firmware upgrades.
+
+GitHub Actions build has not yet been run/validated.
